@@ -15,7 +15,7 @@ Requires macOS 14 or later and the Xcode Command Line Tools.
 open dist/Coco.app
 ```
 
-Select **Connect Calendar** in Coco and choose the calendars you want to use. To use Google Calendar, enable calendar sync for your Google account in macOS Internet Accounts. Keep Coco running for speech bubbles and calendar updates. **Enable Notifications** also makes reminders available through macOS notifications.
+Select **Connect Calendar** in Coco and allow access in macOS. Open **Choose Calendars…**, select as many calendars as you need, then click **Save Calendars**. To use Google Calendar, enable calendar sync for your Google account in macOS Internet Accounts. Keep Coco running for speech bubbles and calendar updates. **Enable Notifications** also makes reminders available through macOS notifications.
 
 In Coco’s settings, **Send Zoom Test Alert** and **Send Room Test Alert** show sample reminders after 15 seconds. The Zoom button opens Zoom’s public test meeting. The room sample uses Room 204.
 

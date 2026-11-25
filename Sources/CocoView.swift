@@ -155,6 +155,8 @@ struct CocoView: View {
     @State private var waveStart: Date?
     @State private var draft: CocoTask?
     @State private var showCompleted = false
+    @State private var calendarDraft: Set<String>?
+    @State private var calendarsSaved = false
 
     private enum Tab: String, CaseIterable {
         case today = "Today", tasks = "Tasks", meetings = "Meetings"
@@ -205,31 +207,40 @@ struct CocoView: View {
     private var dashboard: some View {
         VStack(spacing: 0) {
             header
-            if draft == nil && !showSettings { tabs }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 13) {
-                    if let draft { taskEditor(draft) }
-                    else if showSettings { settings }
-                    else {
-                        switch tab {
-                        case .today: today
-                        case .tasks: tasks
-                        case .meetings: meetings
+            if let selection = Binding($calendarDraft) {
+                CocoCalendarPicker(calendars: model.calendars, selection: selection,
+                                   onCancel: { calendarDraft = nil }, onSave: saveCalendars)
+            } else {
+                if draft == nil && !showSettings { tabs }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 13) {
+                        if calendarsSaved {
+                            Label("Calendars saved", systemImage: "checkmark.circle.fill")
+                                .font(.callout).foregroundStyle(tint)
+                        }
+                        if let draft { taskEditor(draft) }
+                        else if showSettings { settings }
+                        else {
+                            switch tab {
+                            case .today: today
+                            case .tasks: tasks
+                            case .meetings: meetings
+                            }
+                        }
+                        if let message = model.message {
+                            Text(message)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    if let message = model.message {
-                        Text(message)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 13)
+                    .padding(.bottom, 18)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18)
-                .padding(.top, 13)
-                .padding(.bottom, 18)
+                .defaultScrollAnchor(.top)
             }
-            .defaultScrollAnchor(.top)
         }
         .background(canvas.gradient, in: RoundedRectangle(cornerRadius: 26))
         .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.primary.opacity(0.09), lineWidth: 1).allowsHitTesting(false))
@@ -238,7 +249,8 @@ struct CocoView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        let isBack = calendarDraft != nil || showSettings
+        return HStack(spacing: 10) {
             HStack(spacing: 10) {
                 CocoAvatar(size: 64, tint: tint, waveStart: waveStart)
                 Text(model.now.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
@@ -249,9 +261,13 @@ struct CocoView: View {
                                 onClick: { waveStart = Date() }, onDrop: window.rememberPosition)
             }
             Spacer(minLength: 8)
-            iconButton(showSettings ? "arrow.left" : "gearshape", label: showSettings ? "Back" : "Settings") {
-                draft = nil
-                showSettings.toggle()
+            iconButton(isBack ? "arrow.left" : "gearshape", label: isBack ? "Back" : "Settings") {
+                calendarsSaved = false
+                if calendarDraft != nil { calendarDraft = nil }
+                else {
+                    draft = nil
+                    showSettings.toggle()
+                }
             }
             iconButton("minus", label: "Collapse Coco") { window.setExpanded(false) }
         }
@@ -263,7 +279,10 @@ struct CocoView: View {
     private var tabs: some View {
         HStack(spacing: 4) {
             ForEach(Tab.allCases, id: \.self) { item in
-                Button { tab = item } label: {
+                Button {
+                    tab = item
+                    calendarsSaved = false
+                } label: {
                     Label(item.rawValue, systemImage: item.icon)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity)
@@ -304,10 +323,10 @@ struct CocoView: View {
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if model.selectedCalendars.isEmpty { calendarSetup }
-            else if let next {
+            if let next {
                 section("Next meeting", icon: "calendar") { meetingRow(next) }
             }
+            calendarSetup
             section("Task deadlines", icon: "clock") {
                 if model.openTasks.isEmpty {
                     Text("Add a task to track its deadline here.").foregroundStyle(.secondary).font(.callout)
@@ -352,8 +371,8 @@ struct CocoView: View {
                 Spacer()
                 Button { model.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }.buttonStyle(.borderless)
             }
-            if model.selectedCalendars.isEmpty { calendarSetup }
-            else {
+            calendarSetup
+            if !model.selectedCalendars.isEmpty {
                 let future = model.meetings.filter { $0.end > model.now }
                 let days = Array(Set(future.map { CocoModel.clock.startOfDay(for: $0.start) })).sorted()
                 if days.isEmpty {
@@ -378,8 +397,12 @@ struct CocoView: View {
                     Text("Add your Google account with Calendars enabled in System Settings → Internet Accounts.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("Choose the calendars Coco should read for meetings or classes.").font(.callout).foregroundStyle(.secondary)
-                    calendarPicker
+                    HStack {
+                        Text("\(model.selectedCalendars.count) selected")
+                            .font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Choose Calendars…", action: chooseCalendars).buttonStyle(.bordered)
+                    }
                 }
             } else {
                 Text("Connect calendars synced to this Mac for classes, meeting links, and locations.")
@@ -397,20 +420,6 @@ struct CocoView: View {
         }
     }
 
-    private var calendarPicker: some View {
-        ForEach(model.calendars, id: \.calendarIdentifier) { calendar in
-            let id = calendar.calendarIdentifier
-            Toggle("\(calendar.title) · \(calendar.source.title)", isOn: Binding(get: {
-                model.settings.calendarIDs.contains(id)
-            }, set: { enabled in
-                model.change { settings in
-                    if enabled { settings.calendarIDs.insert(id) }
-                    else { settings.calendarIDs.remove(id) }
-                }
-            }))
-        }
-    }
-
     private var settings: some View {
         Group {
             Text("Settings").font(.title3.bold())
@@ -421,9 +430,7 @@ struct CocoView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
-            if model.calendarAccess == .fullAccess && !model.calendars.isEmpty {
-                section("Calendar", icon: "calendar") { calendarPicker }
-            } else { calendarSetup }
+            calendarSetup
             section("Reminders", icon: "bell") {
                 Toggle("Meetings & classes · 10 min before and at start", isOn: binding(\.meetingAlerts))
                 Toggle("Task deadlines", isOn: binding(\.taskAlerts))
@@ -454,6 +461,20 @@ struct CocoView: View {
 
     private func binding<T>(_ path: WritableKeyPath<CocoSettings, T>) -> Binding<T> {
         Binding(get: { model.settings[keyPath: path] }, set: { value in model.change { $0[keyPath: path] = value } })
+    }
+
+    private func chooseCalendars() {
+        calendarsSaved = false
+        calendarDraft = Set(model.selectedCalendars.map(\.calendarIdentifier))
+    }
+
+    private func saveCalendars() {
+        guard let calendarDraft else { return }
+        calendarsSaved = true
+        self.calendarDraft = nil
+        if calendarDraft != model.settings.calendarIDs {
+            model.change { $0.calendarIDs = calendarDraft }
+        }
     }
 
     private func test(_ sample: CocoTest) {
