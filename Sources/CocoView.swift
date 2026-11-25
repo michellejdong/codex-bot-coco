@@ -155,7 +155,8 @@ struct CocoView: View {
     @State private var waveStart: Date?
     @State private var draft: CocoTask?
     @State private var showCompleted = false
-    @State private var calendarDraft: Set<String>?
+    @State private var calendarDraft: Set<String> = []
+    @State private var choosingCalendars = false
     @State private var calendarsSaved = false
 
     private enum Tab: String, CaseIterable {
@@ -207,9 +208,9 @@ struct CocoView: View {
     private var dashboard: some View {
         VStack(spacing: 0) {
             header
-            if let selection = Binding($calendarDraft) {
-                CocoCalendarPicker(calendars: model.calendars, selection: selection,
-                                   onCancel: { calendarDraft = nil }, onSave: saveCalendars)
+            if choosingCalendars {
+                CocoCalendarPicker(calendars: model.calendars, selection: $calendarDraft,
+                                   onCancel: { choosingCalendars = false }, onSave: saveCalendars)
             } else {
                 if draft == nil && !showSettings { tabs }
                 ScrollView {
@@ -249,7 +250,7 @@ struct CocoView: View {
     }
 
     private var header: some View {
-        let isBack = calendarDraft != nil || showSettings
+        let isBack = choosingCalendars || showSettings
         return HStack(spacing: 10) {
             HStack(spacing: 10) {
                 CocoAvatar(size: 64, tint: tint, waveStart: waveStart)
@@ -263,7 +264,7 @@ struct CocoView: View {
             Spacer(minLength: 8)
             iconButton(isBack ? "arrow.left" : "gearshape", label: isBack ? "Back" : "Settings") {
                 calendarsSaved = false
-                if calendarDraft != nil { calendarDraft = nil }
+                if choosingCalendars { choosingCalendars = false }
                 else {
                     draft = nil
                     showSettings.toggle()
@@ -466,15 +467,16 @@ struct CocoView: View {
     private func chooseCalendars() {
         calendarsSaved = false
         calendarDraft = Set(model.selectedCalendars.map(\.calendarIdentifier))
+        choosingCalendars = true
     }
 
     private func saveCalendars() {
-        guard let calendarDraft else { return }
-        calendarsSaved = true
-        self.calendarDraft = nil
-        if calendarDraft != model.settings.calendarIDs {
-            model.change { $0.calendarIDs = calendarDraft }
+        let selection = calendarDraft
+        if selection != model.settings.calendarIDs {
+            model.change { $0.calendarIDs = selection }
         }
+        calendarsSaved = true
+        choosingCalendars = false
     }
 
     private func test(_ sample: CocoTest) {
